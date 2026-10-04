@@ -56,7 +56,7 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         // SAFETY: locked == true while guard lives
         // and we can guarantee that we have this resource
-        // so there are other &mut
+        // so there are no other &mut
         unsafe { &mut *self.lock.data.get() }
     }
 }

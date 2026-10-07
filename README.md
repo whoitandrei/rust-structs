@@ -21,10 +21,10 @@ cargo test
 rust-structs/
 ├── Cargo.toml
 ├── Cargo.lock
-├── .github/workflows/   CI
+├── .github/workflows/   <CI>
 └── src/
     ├── lib.rs           <публичные модули>
-    ├── <primitives>/    <примитивы синхронизации: SpinLock, Mutex, Semaphore, Barrier, Once, RWLock>
+    ├── <sync>/    <примитивы синхронизации: SpinLock, Mutex, Semaphore, Barrier, Once, RWLock>
     ├── <blocking>/      <blocking-структуры: BoundedQueue>
     └── <lockfree>/      <lock-free структуры: Ring Buffer>
 ```

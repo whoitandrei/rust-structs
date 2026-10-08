@@ -2,6 +2,7 @@ use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 #[repr(align(128))]
 struct CachePadded<T>(T);
@@ -13,7 +14,8 @@ struct Inner<T> {
     tail: CachePadded<AtomicUsize>,
 }
 
-// SAFETY: todo
+// SAFETY: T write in producer and read in concumer - here is Send trait
+// Sync - buffer in UnsafeCell but one slot have one владелец прикиньте forget как это на eng будет
 unsafe impl<T: Send> Send for Inner<T> {}
 unsafe impl<T: Send> Sync for Inner<T> {}
 
@@ -52,18 +54,54 @@ pub fn channel<T>(cap: usize) -> (Producer<T>, Consumer<T>) {
 
 impl<T> Producer<T> {
     pub fn push(&mut self, value: T) -> Result<(), T> {
-        todo!()
+        let inner = &*self.inner;
+        let tail = inner.tail.0.load(Ordering::Relaxed);
+        let head = inner.head.0.load(Ordering::Acquire);
+
+        if tail.wrapping_sub(head) == inner.mask + 1 {
+            return Err(value);
+        }
+
+        // SAFETY: cell belongs only for producer ecause of last check
+        unsafe {
+            (*inner.buf[tail & inner.mask].get()).write(value);
+        }
+
+        inner.tail.0.store(tail.wrapping_add(1), Ordering::Release);
+        Ok(())
     }
 }
 
 impl<T> Consumer<T> {
     pub fn pop(&mut self) -> Option<T> {
-        todo!()
+        let inner = &*self.inner;
+        let head = inner.head.0.load(Ordering::Relaxed);
+        let tail = inner.tail.0.load(Ordering::Acquire);
+
+        if head == tail {
+            return None;
+        }
+
+        // SAFETY: cell belongs only for consumer because of last check
+        // producer have wrote cell and go away
+        let val = unsafe { (*inner.buf[head & inner.mask].get()).assume_init_read() };
+
+        inner.head.0.store(head.wrapping_add(1), Ordering::Release);
+        Some(val)
     }
 }
 
 impl<T> Drop for Inner<T> {
     fn drop(&mut self) {
-        todo!()
+        let head = *self.head.0.get_mut();
+        let tail = *self.tail.0.get_mut();
+
+        let mut i = head;
+        while i != tail {
+            unsafe {
+                (*self.buf[i & self.mask].get()).assume_init_drop();
+            }
+            i = i.wrapping_add(1);
+        }
     }
 }

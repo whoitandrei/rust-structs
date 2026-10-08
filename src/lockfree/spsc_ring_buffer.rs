@@ -105,3 +105,57 @@ impl<T> Drop for Inner<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    const N: usize = if cfg!(miri) { 200 } else { 100_000 };
+
+    #[test]
+    fn basic_full_empty_wraparound() {
+        let (mut p, mut c) = channel::<String>(3);
+        assert_eq!(c.pop(), None);
+        for i in 0..4 {
+            p.push(i.to_string()).unwrap();
+        }
+        assert_eq!(p.push("x".into()), Err("x".to_string()));
+
+        for i in 4..1000 {
+            assert_eq!(c.pop(), Some((i - 4).to_string()));
+            p.push(i.to_string()).unwrap();
+        }
+    }
+
+    #[test]
+    fn fifo_two_threads() {
+        let (mut p, mut c) = channel::<String>(4);
+
+        let producer = thread::spawn(move || {
+            for i in 0..N {
+                let mut v = i.to_string();
+                while let Err(back) = p.push(v) {
+                    v = back;
+                    thread::yield_now();
+                }
+            }
+        });
+
+        let consumer = thread::spawn(move || {
+            for i in 0..N {
+                let got = loop {
+                    if let Some(v) = c.pop() {
+                        break v;
+                    }
+                    thread::yield_now();
+                };
+                assert_eq!(got, i.to_string(), "broked FIFO landing");
+            }
+            assert_eq!(c.pop(), None);
+        });
+
+        producer.join().unwrap();
+        consumer.join().unwrap();
+    }
+}
